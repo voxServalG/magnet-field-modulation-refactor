@@ -1,0 +1,209 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>3D Mirror Method Visualizer</title>
+    <!-- Use a specific, stable version of Plotly -->
+    <script src="https://cdn.plot.ly/plotly-2.27.0.min.js"></script>
+    <script id="MathJax-script" async src="https://cdn.jsdelivr.net/npm/mathjax@3/es5/tex-mml-chtml.js"></script>
+    <style>
+        body { font-family: sans-serif; margin: 0; padding: 20px; background: #f0f2f5; display: flex; flex-direction: column; height: 100vh; }
+        .container { display: flex; flex: 1; gap: 20px; min-height: 0; }
+        .controls { width: 350px; background: white; padding: 20px; border-radius: 8px; box-shadow: 0 2px 10px rgba(0,0,0,0.1); overflow-y: auto; display: flex; flex-direction: column; }
+        .visualization { flex: 1; background: white; border-radius: 8px; box-shadow: 0 2px 10px rgba(0,0,0,0.1); position: relative; min-height: 400px; }
+        h2 { margin-top: 0; color: #333; }
+        .slider-group { margin-bottom: 20px; }
+        label { display: block; margin-bottom: 5px; font-weight: bold; color: #555; }
+        input[type=range] { width: 100%; }
+        .value-display { float: right; color: #007bff; }
+        .formula-box { background: #e8f4ff; padding: 15px; border-radius: 5px; border-left: 4px solid #007bff; margin-top: 20px; font-size: 0.9em; }
+        .legend { margin-top: 20px; font-size: 0.85em; color: #666; }
+        .dot { width: 10px; height: 10px; display: inline-block; border-radius: 50%; margin-right: 5px; }
+    </style>
+</head>
+<body>
+
+    <div style="text-align: center; margin-bottom: 10px;">
+        <h1>Mirror Method Logic Visualization</h1>
+        <p>Interactive demonstration of <code>get_mirror_positions</code> algorithm</p>
+    </div>
+
+    <div class="container">
+        <div class="controls">
+            <h2>Parameters</h2>
+            
+            <div class="slider-group">
+                <label>Original X <span id="val-x" class="value-display">0.5</span></label>
+                <input type="range" id="input-x" min="-0.9" max="0.9" step="0.05" value="0.5">
+            </div>
+            <div class="slider-group">
+                <label>Original Y <span id="val-y" class="value-display">0.3</span></label>
+                <input type="range" id="input-y" min="-0.9" max="0.9" step="0.05" value="0.3">
+            </div>
+            <div class="slider-group">
+                <label>Original Z <span id="val-z" class="value-display">0.0</span></label>
+                <input type="range" id="input-z" min="-0.75" max="0.75" step="0.05" value="0.0">
+            </div>
+
+            <hr>
+            
+            <div class="slider-group">
+                <label>Shield Dim X1 <span id="val-x1" class="value-display">0.95</span></label>
+                <input type="range" id="input-x1" min="0.5" max="2.0" step="0.05" value="0.95">
+            </div>
+
+            <div class="formula-box">
+                <strong>Core Formula:</strong>
+                <p>$$ x_{new} = 2 \cdot i \cdot x_1 + x_{old} \cdot (-1)^i $$</p>
+                <p style="font-size: 0.8em; color: #666;">Iterates for $i, j, k \in \{-1, 0, 1\}$</p>
+            </div>
+
+            <div class="legend">
+                <p><span class="dot" style="background: red;"></span> Original Point (Center)</p>
+                <p><span class="dot" style="background: rgba(0,0,255,0.6);"></span> Mirror Points (26 copies)</p>
+                <p><span class="dot" style="background: #ccc;"></span> Shielding Walls (x1, y1, z1)</p>
+            </div>
+        </div>
+        
+        <div class="visualization" id="plot-div">
+            <!-- Plotly chart will be drawn here -->
+        </div>
+    </div>
+
+    <script>
+        document.addEventListener('DOMContentLoaded', function() {
+            // State
+            const state = {
+                x: 0.5, y: 0.3, z: 0.0,
+                x1: 0.95, y1: 0.95, z1: 0.8
+            };
+
+            // DOM Elements
+            const inputs = {
+                x: document.getElementById('input-x'),
+                y: document.getElementById('input-y'),
+                z: document.getElementById('input-z'),
+                x1: document.getElementById('input-x1')
+            };
+            
+            const displays = {
+                x: document.getElementById('val-x'),
+                y: document.getElementById('val-y'),
+                z: document.getElementById('val-z'),
+                x1: document.getElementById('val-x1')
+            };
+
+            // Calculate Mirror Points Logic
+            function calculateMirrors() {
+                const mirrors = [];
+                const { x, y, z, x1, y1, z1 } = state;
+                const indices = [-1, 0, 1];
+
+                indices.forEach(i => {
+                    indices.forEach(j => {
+                        indices.forEach(k => {
+                            const parityX = Math.pow(-1, i);
+                            const parityY = Math.pow(-1, j);
+                            const parityZ = Math.pow(-1, k);
+
+                            const mx = 2 * i * x1 + x * parityX;
+                            const my = 2 * j * y1 + y * parityY;
+                            const mz = 2 * k * z1 + z * parityZ;
+
+                            const isOriginal = (i === 0 && j === 0 && k === 0);
+                            mirrors.push({ x: mx, y: my, z: mz, isOriginal });
+                        });
+                    });
+                });
+                return mirrors;
+            }
+
+            // Render Plotly
+            function renderPlot() {
+                const data = calculateMirrors();
+                const { x1, y1, z1 } = state;
+
+                const xVals = data.map(p => p.x);
+                const yVals = data.map(p => p.y);
+                const zVals = data.map(p => p.z);
+                const colors = data.map(p => p.isOriginal ? 'red' : 'blue');
+                const sizes = data.map(p => p.isOriginal ? 10 : 5);
+                const opacities = data.map(p => p.isOriginal ? 1.0 : 0.5);
+
+                const scatter = {
+                    type: 'scatter3d',
+                    mode: 'markers',
+                    x: xVals, y: yVals, z: zVals,
+                    marker: { size: sizes, color: colors, opacity: opacities },
+                    hovertemplate: 'X: %{x:.2f}<br>Y: %{y:.2f}<br>Z: %{z:.2f}<extra></extra>'
+                };
+
+                // Helper to draw box lines
+                // Vertices of the box
+                const v = [
+                    [-x1, -y1, -z1], [x1, -y1, -z1], [x1, y1, -z1], [-x1, y1, -z1], // Bottom
+                    [-x1, -y1, z1], [x1, -y1, z1], [x1, y1, z1], [-x1, y1, z1]     // Top
+                ];
+                
+                // Edges indices to connect
+                const edges = [
+                    [0,1], [1,2], [2,3], [3,0], // Bottom face
+                    [4,5], [5,6], [6,7], [7,4], // Top face
+                    [0,4], [1,5], [2,6], [3,7]  // Verticals
+                ];
+
+                const lineTraces = [];
+                edges.forEach(edge => {
+                    lineTraces.push({
+                        type: 'scatter3d',
+                        mode: 'lines',
+                        x: [v[edge[0]][0], v[edge[1]][0]],
+                        y: [v[edge[0]][1], v[edge[1]][1]],
+                        z: [v[edge[0]][2], v[edge[1]][2]],
+                        line: { color: 'black', width: 2, dash: 'dash' },
+                        hoverinfo: 'none',
+                        showlegend: false
+                    });
+                });
+
+                const layout = {
+                    margin: { l: 0, r: 0, b: 0, t: 0 },
+                    scene: {
+                        aspectmode: 'cube', // Force 1:1:1 aspect ratio
+                        xaxis: { title: 'X', range: [-2.5, 2.5] },
+                        yaxis: { title: 'Y', range: [-2.5, 2.5] },
+                        zaxis: { title: 'Z', range: [-2.5, 2.5] },
+                        camera: { eye: { x: 1.5, y: 1.5, z: 1.2 } }
+                    },
+                    showlegend: false
+                };
+
+                // Use 'newPlot' for the first time, then 'react' might be faster but newPlot is safer here
+                Plotly.newPlot('plot-div', [scatter, ...lineTraces], layout, {responsive: true});
+            }
+
+            // Update State function
+            function updateState() {
+                state.x = parseFloat(inputs.x.value);
+                state.y = parseFloat(inputs.y.value);
+                state.z = parseFloat(inputs.z.value);
+                state.x1 = parseFloat(inputs.x1.value);
+                
+                displays.x.innerText = state.x.toFixed(2);
+                displays.y.innerText = state.y.toFixed(2);
+                displays.z.innerText = state.z.toFixed(2);
+                displays.x1.innerText = state.x1.toFixed(2);
+                
+                requestAnimationFrame(renderPlot);
+            }
+
+            // Attach listeners
+            Object.values(inputs).forEach(el => el.addEventListener('input', updateState));
+
+            // Initial Render
+            renderPlot();
+        });
+    </script>
+</body>
+</html>

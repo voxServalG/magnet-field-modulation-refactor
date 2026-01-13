@@ -1,0 +1,47 @@
+# General Python
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+.Python
+build/
+develop-eggs/
+dist/
+downloads/
+eggs/
+.eggs/
+lib/
+lib64/
+parts/
+sdist/
+var/
+wheels/
+*.egg-info/
+.installed.cfg
+*.egg
+MANIFEST
+
+# Virtual Environments
+venv/
+.venv/
+env/
+.env
+
+# VS Code
+.vscode/
+*.code-workspace
+
+# JetBrains / IntelliJ
+.idea/
+
+# Operating System
+.DS_Store
+.DS_Store?
+._*
+.Spotlight-V10
+.Trashes
+ehthumbs.db
+Thumbs.db
+
+# Project Specific - Generated Output
+results/

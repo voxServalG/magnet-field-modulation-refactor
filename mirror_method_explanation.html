@@ -1,0 +1,106 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Mirror Method Explanation</title>
+    <script src="https://polyfill.io/v3/polyfill.min.js?features=es6"></script>
+    <script id="MathJax-script" async src="https://cdn.jsdelivr.net/npm/mathjax@3/es5/tex-mml-chtml.js"></script>
+    <style>
+        body {
+            font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+            line-height: 1.6;
+            color: #333;
+            max-width: 800px;
+            margin: 0 auto;
+            padding: 40px;
+            background-color: #f9f9f9;
+        }
+        h1 { color: #2c3e50; border-bottom: 2px solid #3498db; padding-bottom: 10px; }
+        h2 { color: #2980b9; margin-top: 30px; }
+        h3 { color: #16a085; }
+        .box {
+            background: white;
+            border: 1px solid #ddd;
+            border-radius: 8px;
+            padding: 20px;
+            margin: 20px 0;
+            box-shadow: 0 2px 5px rgba(0,0,0,0.05);
+        }
+        code {
+            background: #eee;
+            padding: 2px 5px;
+            border-radius: 3px;
+            font-family: 'Courier New', Courier, monospace;
+            color: #d35400;
+        }
+        .highlight {
+            font-weight: bold;
+            color: #e74c3c;
+        }
+    </style>
+</head>
+<body>
+
+    <h1>Mirror Method: A Textual Explanation</h1>
+    <p>This document explains the physics and mathematics behind the <code>get_mirror_positions</code> function without using complex 3D graphics.</p>
+
+    <div class="box">
+        <h2>1. The "Rubik's Cube" Logic (Why 26 Mirrors?)</h2>
+        <p>Imagine your shielding room is the center block of a 3x3x3 Rubik's Cube.</p>
+        <ul>
+            <li>The cube has <strong>3 layers</strong> in X, <strong>3 layers</strong> in Y, and <strong>3 layers</strong> in Z.</li>
+            <li>Total number of blocks = \( 3 \times 3 \times 3 = 27 \).</li>
+            <li><strong>Center Block (0,0,0)</strong>: This is the <strong>Real World</strong> containing your actual coil.</li>
+            <li><strong>Surrounding Blocks</strong>: The other 26 blocks are the "First-Order Mirrors".</li>
+        </ul>
+        <p>This is why we loop \( i, j, k \) from -1 to 1. We are visiting every block in this cube.</p>
+    </div>
+
+    <div class="box">
+        <h2>2. The Position Formula</h2>
+        <p>How do we calculate the position of a mirror point? Let's look at just the X-axis.</p>
+        <p>Suppose the wall is at \( x = L \).</p>
+        <p>If you stand at \( x_{old} \), your reflection in the wall appears at a distance from the wall equal to your distance to it.</p>
+        
+        <h3>Mathematical Derivation:</h3>
+        <p>Distance to wall = \( L - x_{old} \)</p>
+        <p>Mirror Position = \( \text{Wall Position} + \text{Distance} \)</p>
+        <p>\( x_{new} = L + (L - x_{old}) = \mathbf{2L - x_{old}} \)</p>
+
+        <h3>Generalizing to our Code:</h3>
+        <p>Our code uses a single master formula for all cases (left wall, right wall, or no wall):</p>
+        <p>$$ x_{mirror} = 2 \cdot i \cdot L + x_{old} \cdot (-1)^i $$</p>
+        <ul>
+            <li>If \( i = 0 \) (Center): \( x_{new} = x_{old} \) (No change)</li>
+            <li>If \( i = 1 \) (Right Mirror): \( x_{new} = 2L - x_{old} \) (Matches our derivation!)</li>
+            <li>If \( i = -1 \) (Left Mirror): \( x_{new} = -2L - x_{old} \)</li>
+        </ul>
+    </div>
+
+    <div class="box">
+        <h2>3. The Magic of Automatic Current Direction</h2>
+        <p>You asked: <em>"Do we need to manually flip the current direction?"</em></p>
+        <p><strong>Answer: No. The geometry does it for us.</strong></p>
+
+        <h3>Scenario A: Wire Perpendicular to Wall (Along X-axis)</h3>
+        <p>Wire goes from \( x_1 = 0.1 \) to \( x_2 = 0.2 \). Current vector \( \vec{I} = (0.1, 0, 0) \).</p>
+        <p>Mirror formula \( x' = 2L - x \) flips the coordinates:</p>
+        <ul>
+            <li>Start \( x'_1 = 2L - 0.1 \)</li>
+            <li>End \( x'_2 = 2L - 0.2 \)</li>
+        </ul>
+        <p>New Vector \( \vec{I}' = \text{End} - \text{Start} = (2L - 0.2) - (2L - 0.1) = -0.1 \).</p>
+        <p class="highlight">Result: The current direction is automatically reversed (-0.1)!</p>
+
+        <h3>Scenario B: Wire Parallel to Wall (Along Y-axis)</h3>
+        <p>Wire has constant X. Y goes from 0.1 to 0.2.</p>
+        <p>The X-mirror formula only changes X coordinates, not Y.</p>
+        <p>New Vector \( \vec{I}' \) still has Y component \( 0.2 - 0.1 = 0.1 \).</p>
+        <p class="highlight">Result: The current direction remains unchanged!</p>
+        
+        <p><strong>Conclusion:</strong> By simply transforming the start and end coordinates, the vector mathematics (Start - End) automatically produces the correct physics for the mirror current.</p>
+    </div>
+
+</body>
+</html>
