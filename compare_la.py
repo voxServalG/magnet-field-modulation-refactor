@@ -11,10 +11,10 @@ from src import solver
 
 def verify_la():
     # Paths
-    matlab_base_dir = current_dir.parent / "离散化磁场计算及优化算法Bx"
-    path_A = matlab_base_dir / "A_mirror.mat"
-    path_T = matlab_base_dir / "T_mirror.mat"
-    path_la = matlab_base_dir / "la_saved.mat"
+    data_dir = current_dir / "data"
+    path_A = data_dir / "A_mirror.mat"
+    path_T = data_dir / "T_mirror.mat"
+    path_la = data_dir / "la_saved.mat"
     
     # 1. Calculate Python Result
     print("Calculating Python phi_coeffs...")

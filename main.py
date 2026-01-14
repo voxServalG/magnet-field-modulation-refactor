@@ -21,10 +21,9 @@ def main():
     start_time = time.time()
     
     # Paths
-    # Adjust these relative paths based on your actual folder structure
-    matlab_base_dir = current_dir.parent / "离散化磁场计算及优化算法Bx"
-    path_A = matlab_base_dir / "A_mirror.mat"
-    path_T = matlab_base_dir / "T_mirror.mat"
+    data_dir = current_dir / "data"
+    path_A = data_dir / "A_mirror.mat"
+    path_T = data_dir / "T_mirror.mat"
     output_dir = current_dir / "results"
     output_dir.mkdir(exist_ok=True)
     
