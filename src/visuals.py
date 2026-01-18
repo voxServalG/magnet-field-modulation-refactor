@@ -2,18 +2,21 @@ import matplotlib.pyplot as plt
 import numpy as np
 from mpl_toolkits.mplot3d import Axes3D
 
-def plot_coil_geometry_3d(coils_3d: list, filename: str = None):
+def plot_coil_geometry_3d(coils_3d: list, filename: str = None, colors: list = None):
     '''
-    Visualize the 3D geometry of the bi-planar coil system.
+    Visualize the 3D geometry of the coil system.
     '''
     fig = plt.figure(figsize=(10, 8))
     ax = fig.add_subplot(111, projection='3d')
 
     # Unpack 4-element tuples (top, bot, I_top, I_bot)
-    # We ignore currents for pure geometry plotting
-    for top_loop, bottom_loop, _, _ in coils_3d:
-        ax.plot(top_loop[:, 0], top_loop[:, 1], top_loop[:, 2], 'r-', linewidth=1.5, alpha=0.8)
-        ax.plot(bottom_loop[:, 0], bottom_loop[:, 1], bottom_loop[:, 2], 'b-', linewidth=1.5, alpha=0.8)
+    for i, (top_loop, bottom_loop, _, _) in enumerate(coils_3d):
+        # Use provided color or default to red/blue
+        c_top = colors[i] if colors else 'r'
+        c_bot = colors[i] if colors else 'b'
+        
+        ax.plot(top_loop[:, 0], top_loop[:, 1], top_loop[:, 2], color=c_top, linewidth=1.2, alpha=0.7)
+        ax.plot(bottom_loop[:, 0], bottom_loop[:, 1], bottom_loop[:, 2], color=c_bot, linewidth=1.2, alpha=0.7)
 
     ax.set_xlabel('X (m)')
     ax.set_ylabel('Y (m)')

@@ -35,3 +35,42 @@
     - 线圈板是一个边长为 `2L` 的正方形.
   - `a` / m
     - 两个Bx线圈分别位于 `z=a`, `z=-a`上。
+
+## 18 Jan: 阵列化主动屏蔽仿真流程 (Array Simulation Workflow)
+
+### 抽象目标
+构建一个基于**线性叠加原理**的系统。该系统由多个三轴线圈单元 (Bx/By/Bz) 组成阵列，通过主动优化各通道电流，来压制/补偿任意给定的背景磁场。
+
+### 实务步骤清单 (Practical Steps Checklist)
+
+#### 步骤 1: 准备“标准单元” (Prepare the Unit)
+*   **动作**: 实例化 `CoilFactory`。
+*   **配置**: `L=0.85`, `a=0.7`, `modes=(4,4)`, `reg_lambda=1e-14`, `use_shielding=False` (暂忽略屏蔽室)。
+*   **执行**: 生成 `unit_bx`, `unit_by`, `unit_bz` 列表，包含几何坐标和单位电流信息。
+
+#### 步骤 2: 定义阵列与目标区域 (Define Array & Target ROI)
+*   **阵列几何**: 定义 `Array_Pos` (Nx3) 矩阵，包含每个单元中心的偏移量。
+*   **目标区域 (ROI)**: 定义 `Target_Points` (Mx3)，覆盖需要进行磁场压制的空间范围。
+
+#### 步骤 3: 构建响应矩阵 S (Build Response Matrix)
+*   **逻辑**: 建立映射关系：单元电流输入 ($3K$) $\to$ ROI 磁场输出 ($3M$)。
+*   **结构**: 矩阵 `S`，形状为 $(3M, 3K)$。
+*   **循环构建**:
+    *   遍历每个 单元 $i$ 和 轴 $j$:
+        1.  将标准线圈几何平移 `Array_Pos[i]`。
+        2.  调用 `physics.py` 计算其在 `Target_Points` 产生的磁场。
+        3.  将结果向量拉直 (Flatten) 为 $3M \times 1$。
+        4.  填入 `S` 矩阵的第 $(3i + j)$ 列。
+
+#### 步骤 4: 设定“假想敌” (Define Background Field)
+*   **动作**: 创建函数 `B_bg_func(points)` 模拟环境干扰场（如梯度场）。
+*   **数据**: 计算并生成 ROI 上的背景场向量 `B_bg_data` $(3M \times 1)$。
+
+#### 步骤 5: 求解与反击 (Solve & Counter-Attack)
+*   **数学目标**: 求解方程 $\mathbf{S} \cdot \vec{I} = -\vec{B}_{bg}$。
+*   **求解器**: 使用 `np.linalg.lstsq` (最小二乘法) 计算最优电流向量 $\vec{I}_{opt}$。
+
+#### 步骤 6: 最终仿真与验证 (Final Simulation & Verification)
+*   **组装**: 构建 `Final_System` 列表。遍历所有通道，平移线圈并赋予 $\vec{I}_{opt}$ 中计算出的对应电流权重。
+*   **物理计算**: 计算 `B_total = physics(Final_System) + B_bg`。
+*   **验证**: 统计 `B_total` 的残差 (RMS/Max)，验证“压制”效果是否显著（接近零）。

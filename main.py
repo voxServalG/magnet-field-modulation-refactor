@@ -109,6 +109,12 @@ def run_simulation_pipeline(factory, component_name, output_dir, start_time_tota
 def main():
     start_time_total = time.time()
     
+    # Create Timestamped Output Directory
+    timestamp = time.strftime("%Y%m%d_%H%M%S")
+    output_dir = current_dir / "results" / timestamp
+    output_dir.mkdir(parents=True, exist_ok=True)
+    print(f"[System] Output directory created: {output_dir}")
+    
     # Configuration
     config = {
         'data_dir': current_dir / "data",
@@ -120,9 +126,6 @@ def main():
         'grid_res': 400
     }
     
-    output_dir = current_dir / "results"
-    output_dir.mkdir(exist_ok=True)
-
     factory = CoilFactory(config)
     
     # Sequential Pipeline Runs

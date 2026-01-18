@@ -198,10 +198,18 @@ class MatrixGenerator:
             
         print(f"  [MatrixGen] Computing A matrix for {basis_type} ({M}x{N} modes) with shielding...")
         
+        total_modes = M * N
+        processed_count = 0
+        
         for m in range(1, M + 1):
             for n in range(1, N + 1):
                 col_idx = (m - 1) * N + (n - 1)
+                processed_count += 1
                 
+                # Simple progress indicator for potentially slow operations
+                if processed_count % max(1, total_modes // 5) == 0:
+                     print(f"    -> Mode {processed_count}/{total_modes}...")
+
                 # Get J distribution for this mode (on Top Plane)
                 Jx, Jy = self._get_current_density(m, n, basis_type)
                 J_top = np.hstack([Jx, Jy, np.zeros_like(Jx)]) # (Ns, 3)
