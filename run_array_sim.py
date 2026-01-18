@@ -114,51 +114,80 @@ def run_array_demo():
     print(f"  -> TARGET ZONE RMS [After]:  {rms_res_local:.2f} nT")
     print(f"  -> TARGET Suppression:       {suppression_local_db:.2f} dB")
     
-    # 7. Comprehensive 4-Panel Visualization
-    # --------------------------------------
-    print("\n[Viz] Generating 4-Panel Report...")
-    fig = plt.figure(figsize=(18, 14))
-    
-    # (a) 3D Array Structure
-    ax1 = fig.add_subplot(221, projection='3d')
-    # Use the logic from visuals.py but embedded here for specialized array view
+    # 7. Comprehensive Visualization (Focused on Target Zone)
+    # --------------------------------------------------
+    print("\n[Viz] Generating 4 Focused Images...")
+
+    # (a) 3D Array Structure + Target Marker
+    fig1 = plt.figure(figsize=(10, 8))
+    ax1 = fig1.add_subplot(111, projection='3d')
     for i, (top, bot, _, _) in enumerate(final_system):
         c = coil_colors[i]
-        ax1.plot(top[:,0], top[:,1], top[:,2], color=c, alpha=0.3, linewidth=0.5)
-        ax1.plot(bot[:,0], bot[:,1], bot[:,2], color=c, alpha=0.3, linewidth=0.5)
-    ax1.set_title("3D Array Structure (Red:Bx, Green:By, Blue:Bz)")
-    ax1.set_xlabel('X'); ax1.set_ylabel('Y')
+        ax1.plot(top[:,0], top[:,1], top[:,2], color=c, alpha=0.2, linewidth=0.5)
+        ax1.plot(bot[:,0], bot[:,1], bot[:,2], color=c, alpha=0.2, linewidth=0.5)
     
-    # (b) Background Field (Bx)
-    ax2 = fig.add_subplot(222)
-    sc2 = ax2.tricontourf(target_points[:,0], target_points[:,1], B_bg_vectors[:,0]*1e9, levels=20, cmap='plasma')
-    ax2.set_title("Original Background Field (Bx) [nT]")
-    plt.colorbar(sc2, ax=ax2)
+    # Add a visual indicator for the target ROI (Circle in 3D)
+    theta = np.linspace(0, 2*np.pi, 100)
+    cx = center_spot[0] + radius_spot * np.cos(theta)
+    cy = center_spot[1] + radius_spot * np.sin(theta)
+    cz = np.zeros_like(cx)
+    ax1.plot(cx, cy, cz, color='lime', linewidth=3, label='Target ROI')
+    ax1.set_title("3D Array Structure & Target Region")
+    ax1.set_xlabel('X (m)'); ax1.set_ylabel('Y (m)')
+    ax1.legend()
     
-    # (c) Total Field (Residual Bx - Full View)
-    ax3 = fig.add_subplot(223)
-    # Highlight the target circle
-    circle = plt.Circle(center_spot, radius_spot, color='white', fill=False, linestyle='--', linewidth=2)
-    ax3.add_patch(circle)
-    sc3 = ax3.tricontourf(target_points[:,0], target_points[:,1], B_total[:,0]*1e9, levels=20, cmap='plasma')
-    ax3.set_title("Total Field (Bx) - Note the Suppression Spot!")
-    plt.colorbar(sc3, ax=ax3)
-    
-    # (d) Residual Field (Target Zone Zoom)
-    ax4 = fig.add_subplot(224)
-    # Filter points for zoom
-    sc4 = ax4.tricontourf(target_points[region_mask, 0], target_points[region_mask, 1], B_total[region_mask, 0]*1e9, levels=20, cmap='viridis')
-    ax4.set_title("Target Zone Zoom-in (Residual Bx) [nT]")
-    plt.colorbar(sc4, ax=ax4)
-    
-    for ax in [ax2, ax3, ax4]:
-        ax.set_aspect('equal')
-        ax.set_xlabel('X (m)'); ax.set_ylabel('Y (m)')
+    path1 = output_dir / "1_array_structure_with_target.png"
+    plt.savefig(path1, dpi=200)
+    plt.close(fig1)
+    print(f"  -> Saved: {path1}")
 
-    plt.tight_layout()
-    report_path = output_dir / "array_selective_report.png"
-    plt.savefig(report_path, dpi=200)
-    print(f"  -> Report saved to: {report_path}")
+    # (b) Background Field (Target Zone Only)
+    fig2 = plt.figure(figsize=(8, 6))
+    ax2 = fig2.add_subplot(111)
+    sc2 = ax2.tricontourf(target_points[region_mask,0], target_points[region_mask,1], 
+                         B_bg_vectors[region_mask,0]*1e9, levels=20, cmap='plasma')
+    ax2.set_title("Background Field (Bx) @ Target Zone [nT]")
+    plt.colorbar(sc2, ax=ax2)
+    ax2.set_aspect('equal')
+    ax2.set_xlabel('X (m)'); ax2.set_ylabel('Y (m)')
+    
+    path2 = output_dir / "2_background_field_target.png"
+    plt.savefig(path2, dpi=200)
+    plt.close(fig2)
+    print(f"  -> Saved: {path2}")
+
+    # (c) Total Field (Target Zone Only)
+    fig3 = plt.figure(figsize=(8, 6))
+    ax3 = fig3.add_subplot(111)
+    sc3 = ax3.tricontourf(target_points[region_mask,0], target_points[region_mask,1], 
+                         B_total[region_mask,0]*1e9, levels=20, cmap='plasma')
+    ax3.set_title("Total Field (Bx) @ Target Zone [nT]")
+    plt.colorbar(sc3, ax=ax3)
+    ax3.set_aspect('equal')
+    ax3.set_xlabel('X (m)'); ax3.set_ylabel('Y (m)')
+    
+    path3 = output_dir / "3_total_field_target.png"
+    plt.savefig(path3, dpi=200)
+    plt.close(fig3)
+    print(f"  -> Saved: {path3}")
+
+    # (d) Suppression Ratio or Comparison
+    fig4 = plt.figure(figsize=(8, 6))
+    ax4 = fig4.add_subplot(111)
+    # Calculate local residual as percentage of background
+    residual_pct = (np.abs(B_total[region_mask, 0]) / np.abs(B_bg_vectors[region_mask, 0])) * 100
+    sc4 = ax4.tricontourf(target_points[region_mask, 0], target_points[region_mask, 1], 
+                         residual_pct, levels=20, cmap='viridis')
+    ax4.set_title("Residual Field Ratio (%) - Lower is Better")
+    cbar4 = plt.colorbar(sc4, ax=ax4)
+    cbar4.set_label('% of Original Field')
+    ax4.set_aspect('equal')
+    ax4.set_xlabel('X (m)'); ax4.set_ylabel('Y (m)')
+    
+    path4 = output_dir / "4_suppression_ratio.png"
+    plt.savefig(path4, dpi=200)
+    plt.close(fig4)
+    print(f"  -> Saved: {path4}")
     
     print("\n[Done] Active Shielding Mission Accomplished.")
 
