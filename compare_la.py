@@ -12,23 +12,24 @@ from src import solver
 def verify_la():
     # Paths
     data_dir = current_dir / "data"
-    path_A = data_dir / "A_mirror.mat"
-    path_T = data_dir / "T_mirror.mat"
+    path_sensitivity_file = data_dir / "A_mirror.mat"
+    path_gamma_file = data_dir / "T_mirror.mat"
     path_la = data_dir / "la_saved.mat"
     
     # 1. Calculate Python Result
-    print("Calculating Python phi_coeffs...")
+    print("Calculating Python C_coeffs...")
     reg_lambda = 1.6544e-20
     target_points_count = 216
     
     try:
-        A, T = solver.load_matrices(path_A, path_T, var_name=('A', 'T'))
+        A, Gamma = solver.load_matrices(path_sensitivity_file, path_gamma_file, var_name=('A', 'T'))
     except Exception as e:
         print(f"Error loading matrices: {e}")
         return
 
-    target_field = np.ones((target_points_count, 1))
-    phi_coeffs_py = solver.solve_stream_function_coeffs(A, T, reg_lambda, target_field)
+    b_target = np.ones((target_points_count, 1))
+    # Solve using the new API
+    C_coeffs_py = solver.solve_stream_function_coeffs(A, Gamma, reg_lambda, b_target)
     
     # 2. Load MATLAB Reference
     print(f"Loading reference from {path_la}...")
@@ -44,16 +45,16 @@ def verify_la():
 
     # 3. Compare
     # Ensure shapes match
-    if phi_coeffs_py.shape != la_ref.shape:
-        print(f"Shape mismatch! Python: {phi_coeffs_py.shape}, MATLAB: {la_ref.shape}")
+    if C_coeffs_py.shape != la_ref.shape:
+        print(f"Shape mismatch! Python: {C_coeffs_py.shape}, MATLAB: {la_ref.shape}")
         # Try reshaping python result to match reference if it's just (N,1) vs (N,)
-        if phi_coeffs_py.flatten().shape == la_ref.flatten().shape:
-            phi_coeffs_py = phi_coeffs_py.reshape(la_ref.shape)
+        if C_coeffs_py.flatten().shape == la_ref.flatten().shape:
+            C_coeffs_py = C_coeffs_py.reshape(la_ref.shape)
             print("Reshaped Python result to match reference.")
         else:
             return
 
-    diff = np.abs(phi_coeffs_py - la_ref)
+    diff = np.abs(C_coeffs_py - la_ref)
     max_diff = np.max(diff)
     mean_diff = np.mean(diff)
     
@@ -76,7 +77,7 @@ def verify_la():
     else:
         print(">>")
         print("MISMATCH: There is a significant difference.")
-        print("Top 5 Python values:\n", phi_coeffs_py.flatten()[:5])
+        print("Top 5 Python values:\n", C_coeffs_py.flatten()[:5])
         print("Top 5 MATLAB values:\n", la_ref.flatten()[:5])
 
 if __name__ == "__main__":

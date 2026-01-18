@@ -45,4 +45,7 @@ Thumbs.db
 
 # Project Specific - Generated Output
 results/
-manuals/data/*.mat
+manuals/
+data/
+*.png
+离散化磁场计算及优化算法Bx/

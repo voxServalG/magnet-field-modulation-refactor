@@ -25,3 +25,13 @@
 
 ---
 **下班总结**: 尊重数学原生的拓扑结构，不要在物理积分层做多余的逻辑干预。
+
+## 15 Jan
+- 在特定线圈平面位置及特定目标点位置下，A作为系统 连接了 流函数系数(i) 与 目标点的磁感应强度(o)
+- 基于 need for varied target point, attempt to develop "A generator" and replace static `A` into active ones.
+- **参数单位及物理意义**
+  - `L` / m
+    - 线圈0.5倍边长。
+    - 线圈板是一个边长为 `2L` 的正方形.
+  - `a` / m
+    - 两个Bx线圈分别位于 `z=a`, `z=-a`上。

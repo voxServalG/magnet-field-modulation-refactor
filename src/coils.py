@@ -150,45 +150,72 @@ def calculate_winding_sign(path_coords: np.ndarray) -> int:
 def generate_coil_vertices(
         coils_2d: list[tuple[np.ndarray, int]],
         z_position: float,
-        downsample_factor: int
-) -> list[tuple[np.ndarray, np.ndarray, int]]:
+        downsample_factor: int,
+        current_parity: float = -1.0,
+        current_scale: float = 1.0
+) -> list[tuple[np.ndarray, np.ndarray, float, float]]:
     '''
-    Generates 3d coil vertices for a bi-planar system for 2d contours with downsampling.
-
-    This function performs the transition from 2d design to 3d geometry.
-    It takes in the extracted 2d paths, downsamples them to reduce the computational load, and projects them onto two parallel planes at z=+-z_porition.
-
-    Methodology:
-        1. Downsampling: Selects every k-th point (k=downsample_factor) from the original path. Crucially, it ensures the loop remains closed by explicitly appending the last point if the downsampling logic would otherwise skip it.
-        2. 3d projection:
-            - Top coil: [x, y] -> [x, y, +z]
-            - Bottom coil: [x, y] -> [x, y, -z]
+    Generates 3d coil vertices and assigns physical currents to each loop.
 
     Args:  
-        coils_2d: A list of 2d coils, where each item is (coordinates@(N\times 2), direction@int).
-        z_position: The vertical distance from the origin to the coil planes.
-        downsample_factor: Step size for downsampling points.
+        coils_2d: List of (coordinates, direction_sign).
+        z_position: Vertical distance z.
+        downsample_factor: Step size for points.
+        current_parity: Relationship between top and bottom plane currents.
+        current_scale: Current magnitude per turn (Amperes).
 
     Returns:
-        list[tuple[np.ndarray, np.ndarray, int]]: A list of 3d coils, where each item is (top_coil@(N\times 3), bottom_coil@(N\times 3), direction@int).
+        list: A list of (top_loop, bottom_loop, I_top, I_bottom).
     '''
-    # Downsampling and 3d projection
     coils_3d = []
-    for path_coords, direction in coils_2d:
+    for path_coords, direction_sign in coils_2d:
         # Downsampling
         downsampled_coords = path_coords[::downsample_factor]
-        # Ensure the loop remains closed
         if not np.array_equal(downsampled_coords[-1], path_coords[-1]):
             downsampled_coords = np.vstack([downsampled_coords, path_coords[-1]])
 
-    # Projection to 3d
+        # Projection
         z_top = np.full((len(downsampled_coords), 1), z_position)
         z_bottom = np.full((len(downsampled_coords), 1), -z_position)
 
-        top_coil = np.hstack([downsampled_coords, z_top])
-        bottom_coil = np.hstack([downsampled_coords, z_bottom])
+        top_loop = np.hstack([downsampled_coords, z_top])
+        bottom_loop = np.hstack([downsampled_coords, z_bottom])
         
-        coils_3d.append((top_coil, bottom_coil, direction))
+        # Assign Currents based on winding direction and plane parity
+        # Base current is scaled by current_scale
+        # Vertices are already ordered (CCW for Hill, CW for Valley). 
+        # We want to preserve this flow, so we use positive current magnitude.
+        I_top = current_scale 
+        I_bottom = I_top * current_parity
+        
+        coils_3d.append((top_loop, bottom_loop, I_top, I_bottom))
 
     return coils_3d
+
+def rotate_coil_z(coils_3d: list[tuple[np.ndarray, np.ndarray, int]], 
+                  angle_degrees: float) -> list[tuple[np.ndarray, np.ndarray, int]]:
+    '''
+    Rotates the coil geometry around the Z-axis by a given angle.
+
+    Args:
+        coils_3d (list): List of 3D coil tuples.
+        angle_degrees (float): Rotation angle in degrees (counter-clockwise).
+
+    Returns:
+        list: New list of rotated coils.
+    '''
+    theta = np.radians(angle_degrees)
+    c, s = np.cos(theta), np.sin(theta)
+    rotation_matrix = np.array(((c, -s, 0), (s, c, 0), (0, 0, 1)))
+
+    rotated_coils = []
+    for top_loop, bottom_loop, direction in coils_3d:
+        # Apply rotation matrix to all points (N, 3) -> (N, 3)
+        # (R @ v.T).T = v @ R.T
+        top_new = top_loop @ rotation_matrix.T
+        bottom_new = bottom_loop @ rotation_matrix.T
+        
+        rotated_coils.append((top_new, bottom_new, direction))
+        
+    return rotated_coils
 
