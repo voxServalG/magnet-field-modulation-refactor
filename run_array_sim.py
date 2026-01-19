@@ -12,16 +12,40 @@ from src.factory import CoilFactory
 from src.array_manager import ArrayActiveShielding
 from src import physics, visuals
 
+class DualLogger:
+    '''
+    A helper class to redirect stdout to both the console and a file.
+    '''
+    def __init__(self, filepath):
+        self.terminal = sys.stdout
+        self.log = open(filepath, 'w', encoding='utf-8')
+
+    def write(self, message):
+        self.terminal.write(message)
+        self.log.write(message)
+        self.log.flush() # Ensure real-time logging
+
+    def flush(self):
+        # Needed for python 3 compatibility
+        self.terminal.flush()
+        self.log.flush()
+
 def run_array_demo():
-    print("========================================================")
-    print("   Project Nuke: 3x3 Array Selective Suppression   ")
-    print("========================================================")
-    
-    # Setup Timestamped Output Directory
+    # Setup Timestamped Output Directory FIRST
     timestamp = time.strftime("%Y%m%d_%H%M%S")
     output_dir = current_dir / "results" / timestamp
     output_dir.mkdir(parents=True, exist_ok=True)
+    
+    # --- START LOGGING CAPTURE ---
+    log_file = output_dir / "simulation_log.txt"
+    sys.stdout = DualLogger(log_file)
+    # -----------------------------
+
+    print("========================================================")
+    print("   Project Nuke: 3x3 Array Selective Suppression   ")
+    print("========================================================")
     print(f"[System] Output directory created: {output_dir}")
+    print(f"[System] Log file initiated: {log_file}")
     
     # 1. Setup Environment
     # --------------------
@@ -70,26 +94,129 @@ def run_array_demo():
     # --------------------------
     S = manager.compute_response_matrix(target_points)
     
-    # 4. Define Background Interference (Enemy)
-    # -----------------------------------------
-    print("\n[Sim] Generating Background Interference (Complex Gradient)...")
+    # 4. Define Background Interference (Randomized Dipole Sources)
+    # ---------------------------------------------------------
+    print("\n[Sim] Generating Randomized Background Field (Phantom Dipoles)...")
+    
+    # Random Seed for Reproducibility (Change this to get different fields)
+    seed = np.random.randint(0, 10000)
+    np.random.seed(seed)
+    print(f"  -> Random Seed: {seed}")
+
+    # Create synthetic "Phantom Dipoles" outside the ROI to generate a smooth but random field
+    num_dipoles = 5
+    dipole_positions = []
+    dipole_moments = []
+    
+    # ROI is roughly within [-2.5, 2.5], so place dipoles further out
+    min_dist = 4.0
+    max_dist = 6.0
+    
+    for _ in range(num_dipoles):
+        # Random spherical position
+        r = np.random.uniform(min_dist, max_dist)
+        theta = np.random.uniform(0, np.pi)
+        phi = np.random.uniform(0, 2*np.pi)
+        
+        pos = np.array([
+            r * np.sin(theta) * np.cos(phi),
+            r * np.sin(theta) * np.sin(phi),
+            r * np.cos(theta)
+        ])
+        dipole_positions.append(pos)
+        
+        # Random moment vector (Magnitude ~ 1e4 A*m2 gives ~nT at 5m)
+        moment_mag = np.random.uniform(5e4, 2e5) 
+        moment_vec = np.random.randn(3)
+        moment_vec /= np.linalg.norm(moment_vec) # Normalize direction
+        moment_vec *= moment_mag
+        dipole_moments.append(moment_vec)
+        
+    def calculate_dipole_B(points, pos, moment):
+        # B = (mu0 / 4pi) * (3(m.r)r - m) / r^5
+        # r vector from dipole to point
+        mu0_4pi = 1e-7
+        R = points - pos
+        r_norms = np.linalg.norm(R, axis=1)
+        r_norms = r_norms[:, np.newaxis] # Shape (N, 1)
+        
+        dot_product = np.sum(moment * R, axis=1)[:, np.newaxis] # (m.r)
+        
+        B = (3 * R * dot_product / r_norms**2 - moment) / r_norms**3
+        return mu0_4pi * B
+
+    # Sum up fields
     B_bg_vectors = np.zeros_like(target_points)
-    # Bx = 100nT + 40nT*x + 30nT*y
-    B_bg_vectors[:, 0] = 100e-9 + 40e-9 * target_points[:, 0] + 30e-9 * target_points[:, 1]
-    # By = 50nT*y
-    B_bg_vectors[:, 1] = 50e-9 * target_points[:, 1]
-    # Bz = 20nT
-    B_bg_vectors[:, 2] = 20e-9
+    for pos, mom in zip(dipole_positions, dipole_moments):
+        B_bg_vectors += calculate_dipole_B(target_points, pos, mom)
+        
+    # Scale to ensure it's a challenging but realistic test (mean ~100-200 nT)
+    current_mean = np.mean(np.linalg.norm(B_bg_vectors, axis=1))
+    target_mean = np.random.uniform(100e-9, 200e-9)
+    scaling_factor = target_mean / current_mean
+    B_bg_vectors *= scaling_factor
+    
+    print(f"  -> Generated field with mean intensity: {target_mean*1e9:.2f} nT")
     
     B_bg_flat = B_bg_vectors.flatten()
     
-    # 5. Solve Optimization (REGIONAL!)
-    # ---------------------------------
-    x_opt, _ = manager.solve_optimization(B_bg_flat, S, region_mask=region_mask)
+    # 5. Dynamic Response Experiment (Real-time Switching)
+    # ----------------------------------------------------
+    print("\n" + "="*50)
+    print("      Dynamic Response & Switching Test")
+    print("="*50)
+    print(f"[System] Response Matrix S (Shape {S.shape}) Pre-calculated.")
+    print("[System] Background Field B_bg Pre-calculated.")
+    
+    # --- Phase 1: Initial Target (Alpha) ---
+    print("\n>>> Phase 1: Target Alpha (Original)")
+    center_spot_A = np.array([1.0, 1.0, 0.0])
+    radius_spot_A = 0.6
+    
+    # Fast Mask Generation
+    t_p1_start = time.perf_counter()
+    dist_A = np.linalg.norm(target_points - center_spot_A, axis=1)
+    mask_A = dist_A < radius_spot_A
+    
+    # Solve
+    x_opt_A, _ = manager.solve_optimization(B_bg_flat, S, region_mask=mask_A)
+    t_p1_end = time.perf_counter()
+    
+    duration_A_ms = (t_p1_end - t_p1_start) * 1000.0
+    print(f"  -> Target Location: {center_spot_A}")
+    print(f"  -> Optimization Time: {duration_A_ms:.4f} ms")
+    
+    # --- Phase 2: Target Switch (Beta) ---
+    print("\n>>> Phase 2: Switching to Target Beta (New Location)")
+    center_spot_B = np.array([-1.0, -0.5, 0.5]) 
+    radius_spot_B = 0.6 
+    
+    # Timer starts NOW (Simulating "Enemy moved, System reacting")
+    t_p2_start = time.perf_counter()
+    
+    # 1. Update Logic (Recalculate Mask)
+    dist_B = np.linalg.norm(target_points - center_spot_B, axis=1)
+    mask_B = dist_B < radius_spot_B
+    
+    # 2. Solve (Reuse S matrix!)
+    x_opt_B, _ = manager.solve_optimization(B_bg_flat, S, region_mask=mask_B)
+    
+    t_p2_end = time.perf_counter()
+    duration_B_ms = (t_p2_end - t_p2_start) * 1000.0
+    
+    print(f"  -> New Target Location: {center_spot_B}")
+    print(f"  -> SYSTEM LATENCY (Switch+Solve): {duration_B_ms:.4f} ms")
+    
+    # USE PHASE 2 RESULTS FOR VISUALIZATION
+    print("\n[System] Proceeding to visualize Phase 2 results...")
+    x_opt = x_opt_B
+    region_mask = mask_B
+    center_spot = center_spot_B
+    radius_spot = radius_spot_B
     
     # 6. Final Physics Verification
     # -----------------------------
-    print("\n[Sim] Verifying with Full Physics Simulation...")
+    print("\n[Sim] Verifying with Full Physics Simulation (Phase 2)...")
     final_system, coil_colors = manager.get_final_system(x_opt)
     
     B_array = physics.calculate_field_from_coils(final_system, target_points, use_shielding=False, show_progress=True)
@@ -107,12 +234,13 @@ def run_array_demo():
     rms_res_local = np.sqrt(np.mean(B_res_nt[region_mask]**2))
     suppression_local_db = 20 * np.log10(rms_bg_local / rms_res_local)
     
-    print(f"\n[Results]")
+    print(f"\n[Results - Phase 2]")
     print(f"  -> Global ROI RMS [Before]: {rms_bg_global:.2f} nT")
     print(f"  -> Global ROI RMS [After]:  {rms_res_global:.2f} nT (Expect increase due to side effects)")
     print(f"  -> TARGET SPHERE RMS [Before]: {rms_bg_local:.2f} nT")
     print(f"  -> TARGET SPHERE RMS [After]:  {rms_res_local:.2f} nT")
     print(f"  -> TARGET Suppression:       {suppression_local_db:.2f} dB")
+    print(f"  -> Optimization Latency:     {duration_B_ms:.2f} ms")
     
     # 7. Comprehensive Visualization (Full 3D Volumetric View - Aspect Ratio Fixed)
     # --------------------------------------------------
@@ -126,6 +254,12 @@ def run_array_demo():
 
     # Define common limits for cubic aspect
     limit_3d = 2.5
+    
+    # DETERMINE COMMON COLOR SCALE FOR FIG 2 & FIG 3
+    # Use the range of the Background Field to scale both.
+    # This makes the Total Field (Fig 3) appear visually "darker/suppressed" if successful.
+    vmax_common = np.max(bg_sphere)
+    vmin_common = np.min(bg_sphere)
 
     # (a) 3D Array Structure + Target Sphere Wireframe
     fig1 = plt.figure(figsize=(10, 8))
@@ -147,15 +281,16 @@ def run_array_demo():
     ax1.set_xlim(-limit_3d, limit_3d); ax1.set_ylim(-limit_3d, limit_3d); ax1.set_zlim(-limit_3d, limit_3d)
     ax1.set_box_aspect((1, 1, 1)) # CRITICAL: Fixes the ellipsoid distortion
     
-    path1 = output_dir / "1_array_3d_setup.png"
-    plt.savefig(path1, dpi=200)
+    path1 = output_dir / "1_array_3d_setup.svg"
+    plt.savefig(path1)
     plt.close(fig1)
 
     # (b) Background Field (3D Sphere Volume)
     fig2 = plt.figure(figsize=(10, 8))
     ax2 = fig2.add_subplot(111, projection='3d')
     sc2 = ax2.scatter(sphere_pts[:,0], sphere_pts[:,1], sphere_pts[:,2], 
-                      c=bg_sphere, cmap='plasma', s=30, alpha=0.8)
+                      c=bg_sphere, cmap='plasma', s=30, alpha=0.8,
+                      vmin=vmin_common, vmax=vmax_common) # Explicitly set limits
     plt.colorbar(sc2, ax=ax2, label='Bx (nT)', shrink=0.7)
     ax2.set_title("Initial Background Bx (3D Sphere View)")
     ax2.set_xlabel('X (m)'); ax2.set_ylabel('Y (m)'); ax2.set_zlabel('Z (m)')
@@ -167,23 +302,25 @@ def run_array_demo():
     ax2.set_zlim(center_spot[2]-radius_spot-buf, center_spot[2]+radius_spot+buf)
     ax2.set_box_aspect((1, 1, 1))
     
-    path2 = output_dir / "2_background_field_3d_sphere.png"
-    plt.savefig(path2, dpi=200)
+    path2 = output_dir / "2_background_field_3d_sphere.svg"
+    plt.savefig(path2)
     plt.close(fig2)
 
     # (c) Total Field (3D Sphere Volume)
     fig3 = plt.figure(figsize=(10, 8))
     ax3 = fig3.add_subplot(111, projection='3d')
+    # USE COMMON LIMITS to show relative suppression visually
     sc3 = ax3.scatter(sphere_pts[:,0], sphere_pts[:,1], sphere_pts[:,2], 
-                      c=total_sphere, cmap='plasma', s=30, alpha=0.8)
+                      c=total_sphere, cmap='plasma', s=30, alpha=0.8,
+                      vmin=vmin_common, vmax=vmax_common) 
     plt.colorbar(sc3, ax=ax3, label='Bx (nT)', shrink=0.7)
-    ax3.set_title("Total Residual Bx (3D Sphere View)")
+    ax3.set_title("Total Residual Bx (3D Sphere View) [SAME SCALE]")
     ax3.set_xlabel('X (m)'); ax3.set_ylabel('Y (m)'); ax3.set_zlabel('Z (m)')
     ax3.set_xlim(ax2.get_xlim()); ax3.set_ylim(ax2.get_ylim()); ax3.set_zlim(ax2.get_zlim())
     ax3.set_box_aspect((1, 1, 1))
     
-    path3 = output_dir / "3_total_field_3d_sphere.png"
-    plt.savefig(path3, dpi=200)
+    path3 = output_dir / "3_total_field_3d_sphere.svg"
+    plt.savefig(path3)
     plt.close(fig3)
 
     # (d) Suppression Ratio (3D Sphere Volume)
@@ -197,8 +334,8 @@ def run_array_demo():
     ax4.set_xlim(ax2.get_xlim()); ax4.set_ylim(ax2.get_ylim()); ax4.set_zlim(ax2.get_zlim())
     ax4.set_box_aspect((1, 1, 1))
     
-    path4 = output_dir / "4_suppression_ratio_3d_sphere.png"
-    plt.savefig(path4, dpi=200)
+    path4 = output_dir / "4_suppression_ratio_3d_sphere.svg"
+    plt.savefig(path4)
     plt.close(fig4)
     
     # (e) Coil Breakdown (3 Subplots: Bx, By, Bz)
@@ -244,8 +381,8 @@ def run_array_demo():
         ax.set_box_aspect((1, 1, 1))
         ax.view_init(elev=30, azim=45)
 
-    path5 = output_dir / "5_coils_breakdown.png"
-    plt.savefig(path5, dpi=200, bbox_inches='tight')
+    path5 = output_dir / "5_coils_breakdown.svg"
+    plt.savefig(path5, bbox_inches='tight')
     plt.close(fig5)
     print(f"  -> Saved: {path5}")
 
@@ -315,16 +452,12 @@ def run_array_demo():
     cbar = fig6.colorbar(q1, ax=[ax6_1, ax6_2], shrink=0.6, pad=0.05)
     cbar.set_label('|B| (nT)')
     
-    path6 = output_dir / "6_field_vectors_comparison.png"
-    plt.savefig(path6, dpi=200, bbox_inches='tight')
+    path6 = output_dir / "6_field_vectors_comparison.svg"
+    plt.savefig(path6, bbox_inches='tight')
     plt.close(fig6)
     print(f"  -> Saved: {path6}")
 
     print(f"  -> All 3D volumetric reports saved to: {output_dir}")
-    
-    print(f"  -> All 3D volumetric reports saved to: {output_dir}")
-    print(f"  -> Saved: {path4}")
-    
     print("\n[Done] Active Shielding Mission Accomplished.")
 
 if __name__ == "__main__":

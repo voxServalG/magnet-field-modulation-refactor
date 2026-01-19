@@ -69,20 +69,20 @@ def run_simulation_pipeline(factory, component_name, output_dir, start_time_tota
     
     # Visuals
     prefix = component_name.lower()
-    visuals.plot_coil_geometry_3d(coils_3d, filename=str(output_dir / f"{prefix}_geometry_3d.png"))
+    visuals.plot_coil_geometry_3d(coils_3d, filename=str(output_dir / f"{prefix}_geometry_3d.svg"))
     visuals.plot_field_heatmap(total_B, target_points_flat, component_idx=comp_idx, 
-                               filename=str(output_dir / f"{prefix}_heatmap.png"))
-    print(f"  -> Saved: results/{prefix}_heatmap.png")
+                               filename=str(output_dir / f"{prefix}_heatmap.svg"))
+    print(f"  -> Saved: results/{prefix}_heatmap.svg")
     
     print("  -> Generating 3D Vector Plot...")
     visuals.plot_field_vectors_3d(total_B, target_points_flat, 
-                                  filename=str(output_dir / f"{prefix}_vectors_3d.png"))
-    print(f"  -> Saved: results/{prefix}_vectors_3d.png")
+                                  filename=str(output_dir / f"{prefix}_vectors_3d.svg"))
+    print(f"  -> Saved: results/{prefix}_vectors_3d.svg")
     
     print("  -> Generating 3D Orthogonal Slices Plot (COMSOL Style)...")
     visuals.plot_orthogonal_slices_3d(total_B, target_points_flat, component_idx=comp_idx,
-                                      filename=str(output_dir / f"{prefix}_slices_3d.png"))
-    print(f"  -> Saved: results/{prefix}_slices_3d.png")
+                                      filename=str(output_dir / f"{prefix}_slices_3d.svg"))
+    print(f"  -> Saved: results/{prefix}_slices_3d.svg")
 
     # 6. Report
     print("\n[Step 6] Generating Report...")

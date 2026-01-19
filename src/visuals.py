@@ -41,7 +41,7 @@ def plot_coil_geometry_3d(coils_3d: list, filename: str = None, colors: list = N
         ax.set_zlim(mid_z - max_range, mid_z + max_range)
 
     if filename:
-        plt.savefig(filename, dpi=300)
+        plt.savefig(filename)
         plt.close()
     else:
         plt.show()
@@ -63,7 +63,7 @@ def plot_field_heatmap(field_B: np.ndarray, target_points: np.ndarray, component
     ax.set_aspect('equal')
 
     if filename:
-        plt.savefig(filename, dpi=300)
+        plt.savefig(filename)
         plt.close()
     else:
         plt.show()
@@ -86,7 +86,7 @@ def plot_stream_function(phi_grid: np.ndarray, x_grid: np.ndarray, y_grid: np.nd
     ax.set_aspect('equal')
     
     if filename:
-        plt.savefig(filename, dpi=300)
+        plt.savefig(filename)
         plt.close()
     else:
         plt.show()
@@ -175,7 +175,7 @@ def plot_field_vectors_3d(field_B: np.ndarray,
     ax.set_box_aspect((1, 1, 1))
 
     if filename:
-        plt.savefig(filename, bbox_inches='tight', dpi=300)
+        plt.savefig(filename, bbox_inches='tight')
         plt.close()
     else:
         plt.show()
@@ -253,7 +253,7 @@ def plot_orthogonal_slices_3d(field_B: np.ndarray,
     ax.zaxis.set_major_locator(ticker.MultipleLocator(200))
 
     if filename:
-        plt.savefig(filename, bbox_inches='tight', dpi=300)
+        plt.savefig(filename, bbox_inches='tight')
         plt.close()
     else:
         plt.show()
