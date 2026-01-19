@@ -35,63 +35,67 @@ class CoilFactory:
         EX, EY, EZ = np.meshgrid(ex, ey, ez, indexing='ij')
         self.target_points = np.column_stack((EX.flatten(), EY.flatten(), EZ.flatten()))
 
-    def _get_matrices(self, basis_type: str):
-        '''Lazy loader for matrices'''
-        if basis_type in self.matrix_cache:
-            return self.matrix_cache[basis_type]
+    # Define Recipes for 1st Order Gradients (Scheme B)
+    # Each entry defines: Fourier Primitive, Z-Parity, Primary Component, and Target Formula
+    _GRADIENT_RECIPES = {
+        'gxx': {'basis': 'sc', 'parity': -1.0, 'comp': 'x', 'func': lambda p: p[:, 0]}, # Bx = x
+        'gyy': {'basis': 'cs', 'parity': -1.0, 'comp': 'y', 'func': lambda p: p[:, 1]}, # By = y
+        'gxy': {'basis': 'ss', 'parity': -1.0, 'comp': 'x', 'func': lambda p: p[:, 1]}, # Bx = y
+        'gxz': {'basis': 'sc', 'parity': 1.0,  'comp': 'x', 'func': lambda p: p[:, 2]}, # Bx = z
+        'gyz': {'basis': 'cs', 'parity': 1.0,  'comp': 'y', 'func': lambda p: p[:, 2]}, # By = z
+    }
+
+    def _get_matrices(self, basis_type: str, parity: float, target_comp: str):
+        '''Lazy loader for matrices with parity/component support'''
+        cache_key = (basis_type, parity, target_comp)
+        if cache_key in self.matrix_cache:
+            return self.matrix_cache[cache_key]
         
-        print(f"[Factory] Generating matrices for {basis_type.upper()} from scratch...")
-        A = self.generator.compute_A(self.target_points, self.modes, basis_type)
+        print(f"[Factory] Generating matrices for {basis_type.upper()} [Parity={parity}, Comp={target_comp}]...")
+        A = self.generator.compute_A(self.target_points, self.modes, basis_type, 
+                                     explicit_parity=parity, target_component=target_comp)
         Gamma = self.generator.compute_Gamma(self.modes, basis_type)
         
-        # Debug: Check matrix scales
-        norm_A = np.linalg.norm(A)
-        norm_G = np.linalg.norm(Gamma)
-        print(f"  [Debug] Norm(A): {norm_A:.4e}, Norm(Gamma): {norm_G:.4e}")
-        print(f"  [Debug] A shape: {A.shape}, Gamma shape: {Gamma.shape}")
-        
-        self.matrix_cache[basis_type] = (A, Gamma)
+        self.matrix_cache[cache_key] = (A, Gamma)
         return A, Gamma
 
-    def _solve_and_discretize(self, target_field_vec, reg_lambda, component_label):
-        basis_type = component_label.lower()
+    def _solve_and_discretize(self, target_field_vec, reg_lambda, component_label, 
+                              basis_type=None, parity=None, target_comp=None):
+        label = component_label.lower()
         
-        A, Gamma = self._get_matrices(basis_type)
+        # Determine parameters if not provided (fallback to legacy defaults)
+        if basis_type is None:
+            basis_type = label # 'bx', 'by', 'bz'
+        if parity is None:
+            parity = -1.0 if basis_type in ['bx', 'by', 'sc', 'cs', 'ss'] else 1.0
+        if target_comp is None:
+            target_comp = 'x' if 'x' in basis_type else ('y' if 'y' in basis_type else 'z')
+
+        A, Gamma = self._get_matrices(basis_type, parity, target_comp)
             
         # 1. Solve Inverse Problem
-        print(f"\n[Step 1] Solving Inverse Problem for {basis_type.upper()}...")
-        # Use the passed lambda
+        print(f"\n[Step 1] Solving Inverse Problem for {label.upper()}...")
         C_coeffs = solver.solve_stream_function_coeffs(A, Gamma, reg_lambda, target_field_vec)
-        print(f"  -> Solved coefficients C. Shape: {C_coeffs.shape}")
         
         # 2. Reconstruct Stream Function
         print(f"\n[Step 2] Reconstructing Stream Function...")
         x_grid = np.linspace(-self.L, self.L, self.grid_res)
         y_grid = np.linspace(-self.L, self.L, self.grid_res)
         phi_grid = solver.reconstruct_stream_function(C_coeffs, x_grid, y_grid, self.L, self.modes, coil_type=basis_type)
-        print(f"  -> Stream function grid generated: {phi_grid.shape}")
         
         # 3. Discretize to Coils
         print(f"\n[Step 3] Extracting Coil Geometry...")
         coils_2d = coils.extract_contour_paths(phi_grid, x_grid, y_grid, self.num_turns)
-        print(f"  -> Extracted {len(coils_2d)} discrete loops from contours.")
         
-        # Determine parity for 3D generation
-        parity = -1.0 if basis_type in ['bx', 'by'] else 1.0
-        
-        # Calculate Current per Turn (Physical Scaling)
-        # Phi represents total current stream function (Amperes).
-        # We discretized it into N turns. The current in each wire is Delta_Phi.
         phi_range = phi_grid.max() - phi_grid.min()
         I_per_turn = phi_range / self.num_turns
-        print(f"  -> Physical Scaling: Phi_range={phi_range:.2f} A, I_per_turn={I_per_turn:.2f} A")
         
         coils_3d = coils.generate_coil_vertices(coils_2d, 
-                                                z_position=self.config.get('a', 0.7), 
+                                                z_position=self.a, 
                                                 downsample_factor=5,
                                                 current_parity=parity,
                                                 current_scale=I_per_turn)
-        print(f"  -> Generated 3D geometry (Top & Bottom planes) with parity {parity}.")
+        print(f"  -> Generated {label.upper()} 3D geometry with parity {parity}.")
         
         return coils_3d
 
@@ -101,18 +105,26 @@ class CoilFactory:
         '''
         name = component_name.lower()
         n_points = len(self.target_points)
-        
-        # Use lambda from config if not explicitly provided
         if reg_lambda is None:
             reg_lambda = self.config.get('reg_lambda', 1.6544e-20)
         
         # --- 0th Order Terms (Uniform) ---
         if name in ['bx', 'by', 'bz']:
-            target = np.ones((n_points, 1)) * 50e-9
+            target = np.ones((n_points, 1)) * 50e-9 # Standard 50nT target
             return self._solve_and_discretize(target, reg_lambda, name)
             
-        # --- 1st Order Terms (Gradients) ---
-        # Future work
+        # --- 1st Order Terms (Gradients - Scheme B) ---
+        elif name in self._GRADIENT_RECIPES:
+            recipe = self._GRADIENT_RECIPES[name]
+            # Generate linear target field (e.g. Bx = x)
+            # We use a unit gradient (1 nT/m) for design
+            raw_target = recipe['func'](self.target_points)
+            target = raw_target.reshape(-1, 1) * 1e-9 # 1 nT/m gradient
+            
+            return self._solve_and_discretize(target, reg_lambda, name,
+                                              basis_type=recipe['basis'],
+                                              parity=recipe['parity'],
+                                              target_comp=recipe['comp'])
         
         else:
             print(f"  [Error] Unknown component: {component_name}")

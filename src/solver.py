@@ -105,7 +105,11 @@ def reconstruct_stream_function(C_coeffs    : np.ndarray,
     XX, YY = np.meshgrid(x_grid_1d, y_grid_1d)
     phi_grid = np.zeros_like(XX)
     
-    ctype = coil_type.lower()
+    typ = coil_type.lower()
+    if typ == 'bx': typ = 'sc'
+    elif typ == 'by': typ = 'cs'
+    elif typ == 'bz': typ = 'cc'
+    
     M, N = modes
     
     for m in range(1, M + 1):
@@ -118,25 +122,22 @@ def reconstruct_stream_function(C_coeffs    : np.ndarray,
                 
             C_mn = C_coeffs[coeff_index]
 
-            # Select basis functions based on symmetry
-            if ctype == 'bx':
-                # Bx: sin(x) * cos(y)
+            # Select basis functions based on primitives
+            if typ == 'sc': # Sine-Cosine (Bx)
                 term_x = np.sin(m * np.pi * XX / coil_L)
                 term_y = np.cos((2 * n - 1) * np.pi * YY / (2 * coil_L))
-            elif ctype == 'by':
-                # By: cos(x) * sin(y) - Note indices swap roles compared to Bx usually
-                # Standard from literature for By symmetry:
+            elif typ == 'cs': # Cosine-Sine (By)
                 term_x = np.cos((2 * m - 1) * np.pi * XX / (2 * coil_L))
                 term_y = np.sin(n * np.pi * YY / coil_L)
-            elif ctype == 'bz':
-                # Bz: cos(x) * cos(y)
+            elif typ == 'cc': # Cosine-Cosine (Bz)
                 term_x = np.cos((2 * m - 1) * np.pi * XX / (2 * coil_L))
                 term_y = np.cos((2 * n - 1) * np.pi * YY / (2 * coil_L))
+            elif typ == 'ss': # Sine-Sine (Gxy)
+                term_x = np.sin(m * np.pi * XX / coil_L)
+                term_y = np.sin(n * np.pi * YY / coil_L)
             else:
                 raise ValueError(f"Unknown coil_type: {coil_type}")
             
-            # The negative sign is a convention from the original Bx derivation
-            # We keep it for consistency, though physically it just flips current direction
             term = C_mn * term_x * term_y
             phi_grid += term
 
