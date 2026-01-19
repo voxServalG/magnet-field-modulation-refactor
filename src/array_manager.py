@@ -13,7 +13,7 @@ class ArrayActiveShielding:
     3. Solving the inverse problem to find optimal currents for background field suppression.
     '''
 
-    def __init__(self, factory: CoilFactory, layout_offsets: np.ndarray, use_gradients: bool = False):
+    def __init__(self, factory: CoilFactory, layout_offsets: np.ndarray, use_gradients: bool = False, shield_dims: tuple = None):
         '''
         Initialize the array manager and pre-generate standard coil units.
 
@@ -21,11 +21,13 @@ class ArrayActiveShielding:
             factory (CoilFactory): Configured factory instance to generate standard units.
             layout_offsets (np.ndarray): (N_units, 3) array of center positions for each unit.
             use_gradients (bool): If True, include 5 types of 1st-order gradient coils per unit.
+            shield_dims (tuple): Optional (x, y, z) half-dimensions of shielding room. If set, enables shielding reflections.
         '''
         self.factory = factory
         self.layout = np.asarray(layout_offsets)
         self.num_units = len(self.layout)
         self.use_gradients = use_gradients
+        self.shield_dims = shield_dims
         
         # Define active channels
         self.channels = ['bx', 'by', 'bz']
@@ -34,6 +36,8 @@ class ArrayActiveShielding:
         
         num_ch = len(self.channels)
         print(f"[ArrayManager] Initializing with {self.num_units} units ({num_ch} channels/unit)...")
+        if self.shield_dims:
+            print(f"[ArrayManager] Shielding Reflections ENABLED. Room dims: {self.shield_dims}")
         
         # Pre-generate Standard Units (at origin)
         self.standard_units = {}
@@ -62,13 +66,25 @@ class ArrayActiveShielding:
         start_time = time.time()
         
         col_idx = 0
+        
+        # Determine shielding config
+        use_shielding = (self.shield_dims is not None)
+        
         for i, offset in enumerate(self.layout):
             for comp in self.channels:
                 base_coils = self.standard_units[comp]
                 moved_coils = coils.translate_coils(base_coils, offset)
                 
                 # Compute Field
-                B_vec = physics.calculate_field_from_coils(moved_coils, target_points, use_shielding=False, show_progress=False)
+                # Pass shielding dims if enabled
+                if use_shielding:
+                    B_vec = physics.calculate_field_from_coils(moved_coils, target_points, 
+                                                               use_shielding=True, shield_dims=self.shield_dims, 
+                                                               show_progress=False)
+                else:
+                    B_vec = physics.calculate_field_from_coils(moved_coils, target_points, 
+                                                               use_shielding=False, show_progress=False)
+                
                 S[:, col_idx] = B_vec.flatten()
                 col_idx += 1
                 
