@@ -96,11 +96,24 @@ class ArrayActiveShielding:
         
         return S
 
-    def solve_optimization(self, B_background_vec: np.ndarray, S_matrix: np.ndarray, region_mask: np.ndarray = None) -> tuple[np.ndarray, np.ndarray]:
+    def solve_optimization(self, B_background_vec: np.ndarray, S_matrix: np.ndarray, 
+                           region_mask: np.ndarray = None, 
+                           reg_lambda: float = 1e-12) -> tuple[np.ndarray, np.ndarray]:
         '''
-        Solves for optimal currents to suppress the background field.
+        Solves for optimal currents to suppress the background field using Tikhonov Regularization.
+        
+        Minimizes || S * x + B_bg ||^2 + lambda * || x ||^2.
+        
+        Args:
+            B_background_vec: Flattened background field (3M,).
+            S_matrix: Response matrix (3M, 3K).
+            region_mask: Boolean mask (M,).
+            reg_lambda: Penalty for current magnitude (L2 norm).
+            
+        Returns:
+            tuple: (optimal_weights, residuals)
         '''
-        print("[ArrayManager] Solving Least Squares Optimization...")
+        print(f"[ArrayManager] Solving Tikhonov Optimization (lambda={reg_lambda:.2e})...")
         rhs = -B_background_vec
         
         if region_mask is not None:
@@ -112,9 +125,22 @@ class ArrayActiveShielding:
             S_active = S_matrix
             rhs_active = rhs
         
-        x_opt, residuals, rank, s = np.linalg.lstsq(S_active, rhs_active, rcond=None)
+        # Tikhonov Normal Equation: (S'S + lambda*I) x = S'b
+        STS = S_active.T @ S_active
+        STb = S_active.T @ rhs_active
         
-        print(f"  -> Solved. Rank: {rank}/{min(S_active.shape)}")
+        # Add regularization to diagonal
+        num_ch = STS.shape[0]
+        lhs = STS + reg_lambda * np.eye(num_ch)
+        
+        # Solve linear system
+        x_opt = np.linalg.solve(lhs, STb)
+        
+        # Compute residuals manually for consistency
+        residual_vec = S_active @ x_opt - rhs_active
+        residuals = np.sum(residual_vec**2)
+        
+        print(f"  -> Solved. Mean current weight: {np.mean(np.abs(x_opt)):.4f}")
         return x_opt, residuals
 
     def get_final_system(self, optimal_weights: np.ndarray) -> tuple[list, list]:

@@ -207,4 +207,30 @@
     >     *   **权重强度**: 修改 `run_array_sim.py` 中 `config` 字典里的 `'reg_lambda'` (默认 `1e-14`)。
     >     *   **结构逻辑**: 目前默认为单位阵 (最小化电流平方)。若要改为最小化**功率** (即引入电阻 $R$ 加权)，需修改 `src/array_manager.py` 中的 `solve_optimization` 方法，构建对角矩阵 `Gamma = diag(sqrt(R))`。
 
+## 20 Jan: 功率优化与策略调整 (Power Optimization & Policy Update)
+
+### 1. 战略调整：暂缓屏蔽室，死磕功率 (Strategy Shift)
+*   **新指示**: 暂时搁置屏蔽室镜像耦合问题 (`use_shielding=False`)，优先解决在自由空间下的**电流失控**与**功率爆炸**问题。
+*   **当前模式**: `DEMO_MODE_FREE_SPACE = True`。确保系统在理想环境下先跑出一个“物理可行”的解（即功率在数百瓦量级，而非兆瓦级）。
+
+### 2. 问题记录：性能的代价 (The Cost of Performance)
+在开启全 1 阶梯度 (8通道/单元) 后，虽然压制率达到了惊人的 **40dB+**，但付出了巨大的工程代价：
+*   **线长**: 总用铜量高达 **~5700 米** (20匝/线圈)。
+*   **功率**: 在无约束最小二乘 (`lstsq`) 下，部分通道电流权重极高，导致估算功耗不可接受。
+
+### 3. 修复方案：引入“代价意识” (Cost-Aware Control)
+为了将系统拉回工程现实，实施了以下三步走：
+
+1.  **算法层：Tikhonov 正则化**
+    *   在 `ArrayManager.solve_optimization` 中，将无约束的 `lstsq` 替换为带阻尼的正则化求解：
+        $\mathbf{x} = (\mathbf{S}^T \mathbf{S} + \lambda \mathbf{I})^{-1} \mathbf{S}^T \mathbf{b}$
+    *   **参数调优**: 引入 `ARRAY_REG_LAMBDA`。经过测试，由于 $S$ 矩阵元素量级较小 ($10^{-8}$)，$\mathbf{S}^T \mathbf{S}$ 约为 $10^{-15}$。因此将 $\lambda$ 设定为 **`1e-16`** 以实现有效平衡，过大的 $\lambda$ (如 `1e-10`) 会导致系统“躺平” (电流归零)。
+
+2.  **物理层：导线升级**
+    *   将导线规格从 1mm 升级为 **4平方毫米 (直径 2.26mm)**。
+    *   **收益**: 电阻降低约 5 倍，直接将热功耗削减 80%。
+
+3.  **验证闭环**:
+    *   在仿真报告中新增 **"Est. Power Consumption"** 和 **"Total Wire Length"** 指标，实现从算法到能耗的全链路监控。
+
 

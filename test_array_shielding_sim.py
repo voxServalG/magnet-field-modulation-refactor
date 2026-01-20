@@ -32,7 +32,7 @@ class DualLogger:
 
 def run_array_demo():
     # --- DEMO CONFIGURATION ---
-    DEMO_MODE_FREE_SPACE = True  # Set True to disable shielding reflections (Ideal Demo)
+    DEMO_MODE_FREE_SPACE = False  # Set True to disable shielding reflections (Ideal Demo)
     # --------------------------
 
     # Setup Timestamped Output Directory FIRST
@@ -55,9 +55,10 @@ def run_array_demo():
     # 1. Setup Environment
     # --------------------
     ORDER_LIMIT = 1 # 0: B0 only (3ch), 1: B0 + Gradients (8ch)
+    ARRAY_REG_LAMBDA = 1e-16 # Decreased from 1e-10 to match S matrix scale (~1e-15)
     
     # Real-world Shielding Room Parameters
-    SHIELD_DIMS = (2.4, 1.9, 1.65)
+    # Room: 4.8m x 3.8m x 3.3m -> Half-dims: 2.4, 1.9, 1.65
     
     # Determine active shielding config
     active_shield_dims = None if DEMO_MODE_FREE_SPACE else SHIELD_DIMS
@@ -200,7 +201,9 @@ def run_array_demo():
     t_p1_start = time.perf_counter()
     dist_A = np.linalg.norm(target_points - center_spot_A, axis=1)
     mask_A = dist_A < radius_spot_A
-    x_opt_A, _ = manager.solve_optimization(B_bg_flat, S, region_mask=mask_A)
+    
+    # Phase 1
+    x_opt_A, _ = manager.solve_optimization(B_bg_flat, S, region_mask=mask_A, reg_lambda=ARRAY_REG_LAMBDA)
     t_p1_end = time.perf_counter()
     
     duration_A_ms = (t_p1_end - t_p1_start) * 1000.0
@@ -215,7 +218,7 @@ def run_array_demo():
     t_p2_start = time.perf_counter()
     dist_B = np.linalg.norm(target_points - center_spot_B, axis=1)
     mask_B = dist_B < radius_spot_B
-    x_opt_B, _ = manager.solve_optimization(B_bg_flat, S, region_mask=mask_B)
+    x_opt_B, _ = manager.solve_optimization(B_bg_flat, S, region_mask=mask_B, reg_lambda=ARRAY_REG_LAMBDA)
     t_p2_end = time.perf_counter()
     duration_B_ms = (t_p2_end - t_p2_start) * 1000.0
     
@@ -257,11 +260,11 @@ def run_array_demo():
     
     # --- Power Consumption Estimation ---
     def calculate_system_power(system):
-        # Assumptions: 1mm diameter Copper wire
+        # Assumptions: 4 sq mm (diameter 2.26mm) Copper wire
         rho = 1.68e-8 # Ohm*m
-        dia = 1.0e-3  # m
+        dia = 2.26e-3  # m (2.26mm)
         area = np.pi * (dia/2)**2
-        res_per_m = rho / area # ~0.021 Ohm/m
+        res_per_m = rho / area 
         
         total_watts = 0.0
         total_len = 0.0
