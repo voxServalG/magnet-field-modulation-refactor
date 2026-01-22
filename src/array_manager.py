@@ -20,7 +20,7 @@ class ArrayActiveShielding:
         Args:
             factory (CoilFactory): Configured factory instance to generate standard units.
             layout_offsets (np.ndarray): (N_units, 3) array of center positions for each unit.
-            use_gradients (bool): If True, include 5 types of 1st-order gradient coils per unit.
+            use_gradients (bool): If True, include Gradient coils (Gxx, Gyy, Gxy). Gxz/Gyz are removed as they are synthesized by Bx/By split control.
             shield_dims (tuple): Optional (x, y, z) half-dimensions of shielding room. If set, enables shielding reflections.
         '''
         self.factory = factory
@@ -29,19 +29,27 @@ class ArrayActiveShielding:
         self.use_gradients = use_gradients
         self.shield_dims = shield_dims
         
-        # Define active channels
-        self.channels = ['bx', 'by', 'bz']
+        # Define active channels (Base types)
+        # Note: Gxz and Gyz are REMOVED because independent Top/Bot control of Bx/By can synthesize them.
+        self.base_channels = ['bx', 'by', 'bz']
         if use_gradients:
-            self.channels += ['gxx', 'gyy', 'gxy', 'gxz', 'gyz']
+            self.base_channels += ['gxx', 'gyy', 'gxy']
         
-        num_ch = len(self.channels)
-        print(f"[ArrayManager] Initializing with {self.num_units} units ({num_ch} channels/unit)...")
+        # We will split each base channel into Top and Bot independent channels.
+        # Total channels per unit = len(base_channels) * 2.
+        self.num_base_ch = len(self.base_channels)
+        self.total_ch_per_unit = self.num_base_ch * 2
+        
+        print(f"[ArrayManager] Initializing with {self.num_units} units.")
+        print(f"  -> Base Channels: {self.base_channels} ({self.num_base_ch} types)")
+        print(f"  -> Independent Control: Top/Bot Split -> {self.total_ch_per_unit} channels/unit.")
+        
         if self.shield_dims:
             print(f"[ArrayManager] Shielding Reflections ENABLED. Room dims: {self.shield_dims}")
         
         # Pre-generate Standard Units (at origin)
         self.standard_units = {}
-        for comp in self.channels:
+        for comp in self.base_channels:
             print(f"  -> Pre-generating Standard Unit: {comp.upper()}...")
             coils_list = self.factory.create_component(comp)
             if not coils_list:
@@ -53,16 +61,18 @@ class ArrayActiveShielding:
     def compute_response_matrix(self, target_points: np.ndarray) -> np.ndarray:
         '''
         Constructs the System Response Matrix S (Sensitivity Matrix for the Array).
+        
+        Splits each coil type into two independent columns: [Top_Response, Bot_Response].
         '''
         M = len(target_points)
         K = self.num_units
-        num_ch_per_unit = len(self.channels)
-        num_channels = num_ch_per_unit * K
+        num_channels = self.total_ch_per_unit * K
         num_measurements = 3 * M
         
         S = np.zeros((num_measurements, num_channels))
         
         print(f"[ArrayManager] Computing Response Matrix S ({num_measurements}x{num_channels})...")
+        print("  -> Strategy: Independent Plate Control (Top/Bot Split)")
         start_time = time.time()
         
         col_idx = 0
@@ -71,21 +81,39 @@ class ArrayActiveShielding:
         use_shielding = (self.shield_dims is not None)
         
         for i, offset in enumerate(self.layout):
-            for comp in self.channels:
+            for comp in self.base_channels:
                 base_coils = self.standard_units[comp]
                 moved_coils = coils.translate_coils(base_coils, offset)
                 
-                # Compute Field
-                # Pass shielding dims if enabled
-                if use_shielding:
-                    B_vec = physics.calculate_field_from_coils(moved_coils, target_points, 
-                                                               use_shielding=True, shield_dims=self.shield_dims, 
-                                                               show_progress=False)
-                else:
-                    B_vec = physics.calculate_field_from_coils(moved_coils, target_points, 
-                                                               use_shielding=False, show_progress=False)
+                # --- Split Logic ---
+                # We need to compute response for Top Only and Bot Only.
                 
-                S[:, col_idx] = B_vec.flatten()
+                # 1. Top Channel (Bot Current = 0)
+                coils_top_only = []
+                for top, bot, it, ib in moved_coils:
+                    coils_top_only.append((top, bot, it, 0.0)) # I_bot = 0
+                
+                if use_shielding:
+                    B_top = physics.calculate_field_from_coils(coils_top_only, target_points, 
+                                                               use_shielding=True, shield_dims=self.shield_dims, show_progress=False)
+                else:
+                    B_top = physics.calculate_field_from_coils(coils_top_only, target_points, 
+                                                               use_shielding=False, show_progress=False)
+                S[:, col_idx] = B_top.flatten()
+                col_idx += 1
+                
+                # 2. Bottom Channel (Top Current = 0)
+                coils_bot_only = []
+                for top, bot, it, ib in moved_coils:
+                    coils_bot_only.append((top, bot, 0.0, ib)) # I_top = 0
+                
+                if use_shielding:
+                    B_bot = physics.calculate_field_from_coils(coils_bot_only, target_points, 
+                                                               use_shielding=True, shield_dims=self.shield_dims, show_progress=False)
+                else:
+                    B_bot = physics.calculate_field_from_coils(coils_bot_only, target_points, 
+                                                               use_shielding=False, show_progress=False)
+                S[:, col_idx] = B_bot.flatten()
                 col_idx += 1
                 
             if (i + 1) % max(1, K // 5) == 0:
@@ -146,30 +174,42 @@ class ArrayActiveShielding:
     def get_final_system(self, optimal_weights: np.ndarray) -> tuple[list, list]:
         '''
         Constructs the final physical coil system and associated colors.
+        
+        Re-assembles the split Top/Bot channels into physical coils.
         '''
         final_system = []
         colors = []
         col_idx = 0
         
-        # Color map for Bx, By, Bz and Gradients
+        # Color map
         comp_colors = {
             'bx': 'r', 'by': 'g', 'bz': 'b',
-            'gxx': 'orange', 'gyy': 'lime', 'gxy': 'cyan', 'gxz': 'magenta', 'gyz': 'yellow'
+            'gxx': 'orange', 'gyy': 'lime', 'gxy': 'cyan'
         }
         
         for i, offset in enumerate(self.layout):
-            for comp in self.channels:
-                weight = optimal_weights[col_idx]
+            for comp in self.base_channels:
+                # Retrieve weights for Top and Bot channels
+                w_top = optimal_weights[col_idx]
+                col_idx += 1
+                w_bot = optimal_weights[col_idx]
                 col_idx += 1
                 
-                if abs(weight) < 1e-9:
+                # If both are negligible, skip
+                if abs(w_top) < 1e-9 and abs(w_bot) < 1e-9:
                     continue
                 
                 base_coils = self.standard_units[comp]
                 moved_coils = coils.translate_coils(base_coils, offset)
                 
-                for top, bot, it, ib in moved_coils:
-                    final_system.append((top, bot, it * weight, ib * weight))
+                for top, bot, it_base, ib_base in moved_coils:
+                    # Final Top Current = it_base * w_top
+                    # Final Bot Current = ib_base * w_bot
+                    
+                    final_it = it_base * w_top
+                    final_ib = ib_base * w_bot
+                    
+                    final_system.append((top, bot, final_it, final_ib))
                     colors.append(comp_colors.get(comp, 'k'))
                 
         print(f"[ArrayManager] Assembled final system with {len(final_system)} active coil segments.")

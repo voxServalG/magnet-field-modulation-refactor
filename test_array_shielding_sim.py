@@ -32,7 +32,7 @@ class DualLogger:
 
 def run_array_demo():
     # --- DEMO CONFIGURATION ---
-    DEMO_MODE_FREE_SPACE = False  # Set True to disable shielding reflections (Ideal Demo)
+    DEMO_MODE_FREE_SPACE = True  # Set True to disable shielding reflections (Ideal Demo)
     # --------------------------
 
     # Setup Timestamped Output Directory FIRST
@@ -55,10 +55,11 @@ def run_array_demo():
     # 1. Setup Environment
     # --------------------
     ORDER_LIMIT = 1 # 0: B0 only (3ch), 1: B0 + Gradients (8ch)
-    ARRAY_REG_LAMBDA = 1e-16 # Decreased from 1e-10 to match S matrix scale (~1e-15)
+    ARRAY_REG_LAMBDA = 1e-18 # The 'Sweet Spot' discovered via parameter scan
     
     # Real-world Shielding Room Parameters
     # Room: 4.8m x 3.8m x 3.3m -> Half-dims: 2.4, 1.9, 1.65
+    SHIELD_DIMS = (2.4, 1.9, 1.65)
     
     # Determine active shielding config
     active_shield_dims = None if DEMO_MODE_FREE_SPACE else SHIELD_DIMS
@@ -68,7 +69,7 @@ def run_array_demo():
         'a': 0.7,   # Unit Half-Distance (1.4m plate spacing)
         'modes': (4, 4),
         'reg_lambda': 1e-14,
-        'num_turns': 20,
+        'num_turns': 10, # Reduced from 20 to 10: 'Taking a cut' to save wire length
         'grid_res': 80,
         'shield_dims': active_shield_dims # Dynamic
     }
@@ -295,7 +296,7 @@ def run_array_demo():
     print(f"  -> TARGET SPHERE RMS [After]:  {rms_res_local:.2f} nT")
     print(f"  -> TARGET Suppression:       {suppression_local_db:.2f} dB")
     print(f"  -> Optimization Latency:     {duration_B_ms:.2f} ms")
-    print(f"  -> Est. Power Consumption:   {power_watts:.4f} W (assuming 1mm Cu wire)")
+    print(f"  -> Est. Power Consumption:   {power_watts:.4f} W (assuming 2.26mm/4mm^2 Cu wire)")
     print(f"  -> Total Wire Length:        {wire_len:.2f} m")
     
     # 7. Comprehensive Visualization
@@ -359,40 +360,53 @@ def run_array_demo():
     plt.savefig(output_dir / "4_suppression_ratio_3d_sphere.svg")
     plt.close(fig4)
     
-    # (e) Coil Breakdown (Multi-channel)
-    print("  -> Generating Coil Breakdown Figure...")
-    n_ch = len(manager.channels)
+    # (e) Coil Breakdown (Multi-channel: Base Types)
+    print("  -> Generating Coil Breakdown Figure (Base Types)...")
+    # We visualize the 6 base types. The Top/Bot split is an internal control detail.
+    channels_to_plot = manager.base_channels # ['bx', 'by', 'bz', 'gxx', 'gyy', 'gxy']
+    n_ch = len(channels_to_plot)
     cols = 3
     rows = int(np.ceil(n_ch / cols))
     fig5 = plt.figure(figsize=(18, 5 * rows))
     
-    for idx, ch in enumerate(manager.channels):
+    col_idx_map = 0 # Track index in optimal_weights (which is 2 * base_ch long)
+    
+    for idx, ch in enumerate(channels_to_plot):
         ax = fig5.add_subplot(rows, cols, idx + 1, projection='3d')
-        # Find a sample color for this channel
-        sample_color = 'k'
-        for i, (top, bot, _, _) in enumerate(final_system):
-            if coil_colors[i] in ['r', 'g', 'b', 'orange', 'lime', 'cyan', 'magenta', 'yellow']:
-                # This logic is a bit hacky because we don't store channel names in final_system
-                # But we can reconstruct it
-                pass
         
-        # Proper breakdown plot: Filter coils belonging to this channel across all units
-        # col_idx in optimal_weights is unit_idx * n_ch_per_unit + ch_idx
+        # Color map
+        c_map = {'bx':'r','by':'g','bz':'b','gxx':'orange','gyy':'lime','gxy':'cyan'}
+        c = c_map.get(ch, 'k')
+        
+        # Iterate all units to find coils for this channel 'ch'
         for u_idx in range(manager.num_units):
-            weight_idx = u_idx * n_ch + idx
-            weight = x_opt[weight_idx]
-            if abs(weight) < 1e-9: continue
+            # Calculate weight index for this unit and this channel
+            # Stride = total_ch_per_unit
+            # Inside unit: channel order matches base_channels
+            # For channel 'ch' at base_index 'b_idx':
+            #   Top Weight = weights[ u_idx*Stride + b_idx*2 ]
+            #   Bot Weight = weights[ u_idx*Stride + b_idx*2 + 1 ]
+            
+            b_idx = manager.base_channels.index(ch)
+            stride = manager.total_ch_per_unit
+            base_ptr = u_idx * stride + b_idx * 2
+            
+            w_top = x_opt[base_ptr]
+            w_bot = x_opt[base_ptr + 1]
+            
+            if abs(w_top) < 1e-9 and abs(w_bot) < 1e-9:
+                continue
             
             base_coils = manager.standard_units[ch]
             moved_coils = coils.translate_coils(base_coils, manager.layout[u_idx])
             
-            # Use color from manager mapping
-            c_map = {'bx':'r','by':'g','bz':'b','gxx':'orange','gyy':'lime','gxy':'cyan','gxz':'magenta','gyz':'yellow'}
-            c = c_map.get(ch, 'k')
-            
             for top, bot, _, _ in moved_coils:
-                ax.plot(top[:,0], top[:,1], top[:,2], color=c, alpha=0.5, linewidth=0.8)
-                ax.plot(bot[:,0], bot[:,1], bot[:,2], color=c, alpha=0.5, linewidth=0.8)
+                # Visualize Top
+                if abs(w_top) > 1e-9:
+                    ax.plot(top[:,0], top[:,1], top[:,2], color=c, alpha=0.5, linewidth=0.8)
+                # Visualize Bot
+                if abs(w_bot) > 1e-9:
+                    ax.plot(bot[:,0], bot[:,1], bot[:,2], color=c, alpha=0.5, linewidth=0.8)
         
         ax.set_title(f"Channel: {ch.upper()}")
         ax.set_xlim(-limit_3d, limit_3d); ax.set_ylim(-limit_3d, limit_3d); ax.set_zlim(-limit_3d, limit_3d)
@@ -436,7 +450,5 @@ def run_array_demo():
 
     print(f"\n[Done] All reports saved to: {output_dir}")
 
-if __name__ == "__main__":
-    run_array_demo()
 if __name__ == "__main__":
     run_array_demo()
