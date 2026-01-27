@@ -106,23 +106,39 @@ def biot_savart_wire_to_points(wire_start: np.ndarray,
 
 def get_mirror_positions(wire_start: np.ndarray, 
                          wire_end: np.ndarray, 
-                         shield_dims: tuple[float, float, float] = (0.95, 0.95, 0.8)) -> list[tuple[np.ndarray, np.ndarray]]:
+                         shield_dims: tuple[float, float, float] = (0.95, 0.95, 0.8)) -> list[tuple[np.ndarray, np.ndarray, float]]:
     '''
-    Generates coordinates for the original wire segment and its mirror images.
+    Generates coordinates for the original wire segment and its mirror images, 
+    including a current scaling factor for magnetic mirrors (Mu-metal).
+    
+    For Mu-metal (magnetic) mirrors, the image current must be in-phase. 
+    Since a geometric reflection flips the chirality (sign), we must multiply 
+    by the parity product to restore the positive phase.
     '''
     x1, y1, z1 = shield_dims
     mirrors = []
     
-    # Iterate through mirror indices corresponding to x, y, z reflections (-1, 0, 1)
     for i in [-1, 0, 1]:
         for j in [-1, 0, 1]:
             for k in [-1, 0, 1]:
                 # Calculate reflection parity
-                parity_x = (-1)**i
-                parity_y = (-1)**j
-                parity_z = (-1)**k
+                parity_x = (-1)**abs(i) if i != 0 else 1
+                parity_y = (-1)**abs(j) if j != 0 else 1
+                parity_z = (-1)**abs(k) if k != 0 else 1
                 
-                # Calculate mirror coordinates
+                # For magnetic mirrors, we want a 'Positive Image'.
+                # Geometric flip (single axis) is naturally 'Negative' (Anti-mirror).
+                # So we multiply by the parity product to flip it back.
+                # 1 flip: scale = -1. 2 flips: scale = 1. 3 flips: scale = -1.
+                # Note: original segment (0,0,0) has parity product 1.
+                p_prod = 1
+                if i != 0: p_prod *= -1
+                if j != 0: p_prod *= -1
+                if k != 0: p_prod *= -1
+                
+                # Mirror coordinates (Center-out logic)
+                # If i=1, reflection plane is at x=x1. Mirror is at 2*x1 - x.
+                # If i=-1, reflection plane is at x=-x1. Mirror is at -2*x1 - x.
                 start_x = 2 * i * x1 + wire_start[0] * parity_x
                 start_y = 2 * j * y1 + wire_start[1] * parity_y
                 start_z = 2 * k * z1 + wire_start[2] * parity_z
@@ -134,7 +150,7 @@ def get_mirror_positions(wire_start: np.ndarray,
                 p_start = np.array([start_x, start_y, start_z])
                 p_end = np.array([end_x, end_y, end_z])
                 
-                mirrors.append((p_start, p_end))
+                mirrors.append((p_start, p_end, float(p_prod)))
                 
     return mirrors
 
@@ -174,12 +190,12 @@ def calculate_field_from_coils(coils_3d: list[tuple[np.ndarray, np.ndarray, floa
                 if use_shielding:
                     segments = get_mirror_positions(p_start, p_end, shield_dims=shield_dims)
                 else:
-                    segments = [(p_start, p_end)]
+                    segments = [(p_start, p_end, 1.0)]
                 
-                for s, e in segments:
+                for s, e, scale in segments:
                     all_starts.append(s)
                     all_ends.append(e)
-                    all_currents.append(loop_current)
+                    all_currents.append(loop_current * scale)
 
     if not all_starts:
         return np.zeros_like(target_points)

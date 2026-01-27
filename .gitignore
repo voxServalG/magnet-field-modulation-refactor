@@ -51,3 +51,5 @@ data/
 *.svg
 *.pdf
 离散化磁场计算及优化算法Bx/
+TQdata.m
+legend_data.txt
